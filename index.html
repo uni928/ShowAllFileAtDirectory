@@ -13,7 +13,7 @@
 </head>
 <body>
 
-<h2>📂 拡張子で分類されたファイル一覧</h2>
+<h2>📂 拡張子で分類されたファイル一覧（CSV出力対応）</h2>
 <button id="pick">フォルダを選択</button>
 <button id="downloadCsv" disabled>📤 CSV出力</button>
 <div id="view"></div>
@@ -55,26 +55,54 @@
   });
 
 function generateCsv() {
-  const rows = [["拡張子", "件数", "ファイル名", "パス"]];
+  const rows = [["拡張子", "件数", "ファイル名", "パス", "サイズ", "更新日(適当な項目をダブルクリックして有効化して下さい)"]];
   const sortedExts = Object.entries(extGroups).sort((a, b) => a[0].localeCompare(b[0]));
 
   for (const [ext, files] of sortedExts) {
-    rows.push([ext, files.length, "", ""]);
-    files.forEach(f => {
-      rows.push(["", "", f.name, f.path.replaceAll("/", "\\")]);
-    });
+  const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  rows.push([ext, sortedFiles.length, "", "", "", ""]);
+  for (const file of sortedFiles) {
+    const info = file.fileInfo;
+    const size = info?.size != null ? formatFileSize(info.size) : "";
+    const date = info?.lastModified
+      ? new Date(info.lastModified).toLocaleString("ja-JP", {
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit"
+        }).replace(/\//g, "-")
+      : "";
+
+    rows.push([
+      "", "", file.name,
+      file.path.replaceAll("/", "\\"),
+      size,
+      date
+    ]);
   }
+}
 
   return rows.map(row =>
-  row.map(cell => (cell ?? "").toString()).join(",")
-).join("\n");
+    row.map(cell => (cell ?? "").toString()).join(",")
+  ).join("\n");
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
   async function readAllFiles(dirHandle, path = '') {
     for await (const [name, handle] of dirHandle.entries()) {
       const fullPath = `${path}${name}`;
       if (handle.kind === 'file') {
-        allFiles.push({ name, path: fullPath, handle });
+        const fileData = await handle.getFile();
+allFiles.push({
+  name,
+  path: fullPath,
+  handle,
+  fileInfo: fileData // ← 追加：Fileオブジェクト保存
+});
       } else if (handle.kind === 'directory') {
         await readAllFiles(handle, `${fullPath}/`);
       }
