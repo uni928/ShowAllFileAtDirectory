@@ -2,58 +2,35 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>拡張子フィルター付きプレビュー</title>
+  <title>拡張子で分類して表示</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
-    label { margin-right: 10px; }
-    input { margin-bottom: 10px; }
     table { border-collapse: collapse; width: 100%; margin-top: 10px; }
     th, td { border: 1px solid #ccc; padding: 6px; }
-    th { background: #eee; cursor: pointer; }
-    td button { margin-right: 5px; }
+    th { background: #eee; }
+    button { margin: 5px 0; }
   </style>
 </head>
 <body>
 
-<h2>📁 ファイル一覧とプレビュー（拡張子フィルター対応）</h2>
-
-<div>
-  <label>📌 指定拡張子 (例: txt,md):</label>
-  <input type="text" id="includeExts" placeholder="カンマ区切りで入力">
-  <label>🚫 除外拡張子 (例: log,tmp):</label>
-  <input type="text" id="excludeExts" placeholder="カンマ区切りで入力">
-</div>
-
+<h2>📂 拡張子で分類されたファイル一覧</h2>
 <button id="pick">フォルダを選択</button>
-
-<table id="fileTable" style="display:none;">
-  <thead>
-    <tr>
-      <th data-sort="name">ファイル名</th>
-      <th data-sort="path">パス</th>
-      <th>操作</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+<div id="view"></div>
 
 <script>
   const pickBtn = document.getElementById('pick');
-  const includeInput = document.getElementById('includeExts');
-  const excludeInput = document.getElementById('excludeExts');
-  const table = document.getElementById('fileTable');
-  const tbody = table.querySelector('tbody');
-  let fileList = [];
+  const viewDiv = document.getElementById('view');
+  let allFiles = [];
+  let extGroups = {};
 
   pickBtn.addEventListener('click', async () => {
     try {
       const dirHandle = await window.showDirectoryPicker();
-      fileList = [];
+      allFiles = [];
+      extGroups = {};
       await readAllFiles(dirHandle);
-      applyFilters();
-      sortByExtThenName(true);
-      renderTable();
-      table.style.display = 'table';
+      groupByExtension();
+      renderExtensionTable();
     } catch (e) {
       alert('キャンセルされました。');
     }
@@ -63,53 +40,66 @@
     for await (const [name, handle] of dirHandle.entries()) {
       const fullPath = `${path}${name}`;
       if (handle.kind === 'file') {
-        fileList.push({ name, path: fullPath, handle });
+        allFiles.push({ name, path: fullPath, handle });
       } else if (handle.kind === 'directory') {
         await readAllFiles(handle, `${fullPath}/`);
       }
     }
   }
 
-  function applyFilters() {
-    const include = parseExtList(includeInput.value);
-    const exclude = parseExtList(excludeInput.value);
-    fileList = fileList.filter(f => {
-      const ext = getExt(f.name);
-      if (include.length > 0) {
-        return include.includes(ext);
-      } else if (exclude.length > 0) {
-        return !exclude.includes(ext);
-      }
-      return true;
-    });
-  }
-
-  function parseExtList(input) {
-    return input.split(',')
-      .map(e => e.trim().toLowerCase())
-      .filter(e => e.length > 0);
+  function groupByExtension() {
+    extGroups = {};
+    for (const file of allFiles) {
+      const ext = getExt(file.name);
+      if (!extGroups[ext]) extGroups[ext] = [];
+      extGroups[ext].push(file);
+    }
   }
 
   function getExt(filename) {
     const dot = filename.lastIndexOf('.');
-    return dot === -1 ? '' : filename.slice(dot + 1).toLowerCase();
+    return dot === -1 ? '(no ext)' : filename.slice(dot).toLowerCase();
   }
 
-  function renderTable() {
-    tbody.innerHTML = '';
-    fileList.forEach((file, index) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${file.name}</td>
-        <td>${file.path}</td>
-        <td><button onclick="previewFile(${index})">プレビュー</button></td>
-      `;
-      tbody.appendChild(tr);
-    });
+  function renderExtensionTable() {
+    viewDiv.innerHTML = '<h3>拡張子一覧</h3>';
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead><tr><th>拡張子</th><th>件数</th><th>操作</th></tr></thead>
+      <tbody>
+        ${Object.entries(extGroups).map(([ext, files]) => `
+          <tr>
+            <td>${ext}</td>
+            <td>${files.length}</td>
+            <td><button onclick="renderFileTable('${ext}')">この拡張子を開く</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    viewDiv.appendChild(table);
   }
+
+  window.renderFileTable = function(ext) {
+    const files = extGroups[ext];
+    viewDiv.innerHTML = `<h3>${ext} のファイル一覧</h3><button onclick="renderExtensionTable()">← 戻る</button>`;
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead><tr><th>ファイル名</th><th>パス</th><th>操作</th></tr></thead>
+      <tbody>
+        ${files.map((file, idx) => `
+          <tr>
+            <td>${file.name}</td>
+            <td>${file.path}</td>
+            <td><button onclick="previewFile(${allFiles.indexOf(file)})">プレビュー</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    viewDiv.appendChild(table);
+  };
 
   async function previewFile(index) {
-    const file = await fileList[index].handle.getFile();
+    const file = await allFiles[index].handle.getFile();
     const content = await file.text();
     const html = `
       <html><head><meta charset="UTF-8"><title>${file.name}</title></head>
@@ -122,7 +112,7 @@
       newTab.document.write(html);
       newTab.document.close();
     } else {
-      alert("新しいタブを開けませんでした。ポップアップブロックを解除してください。");
+      alert("新しいタブを開けませんでした。");
     }
   }
 
@@ -131,38 +121,6 @@
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]
     );
   }
-
-  function sortByExtThenName(ascending) {
-    fileList.sort((a, b) => {
-      const [aExt, aBase] = splitExt(a.name);
-      const [bExt, bBase] = splitExt(b.name);
-      const extCompare = aExt.localeCompare(bExt);
-      const result = extCompare !== 0 ? extCompare : aBase.localeCompare(bBase);
-      return ascending ? result : -result;
-    });
-  }
-
-  function splitExt(filename) {
-    const lastDot = filename.lastIndexOf('.');
-    if (lastDot === -1) return ['', filename.toLowerCase()];
-    return [filename.slice(lastDot + 1).toLowerCase(), filename.slice(0, lastDot).toLowerCase()];
-  }
-
-  // ヘッダーソート対応
-  document.querySelectorAll('th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      const ascending = th.classList.toggle('asc');
-      if (key === 'name') {
-        sortByExtThenName(ascending);
-      } else {
-        fileList.sort((a, b) =>
-          ascending ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key])
-        );
-      }
-      renderTable();
-    });
-  });
 </script>
 
 </body>
