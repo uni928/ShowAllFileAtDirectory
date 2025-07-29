@@ -2,27 +2,29 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>拡張子で分類して表示</title>
+  <title>拡張子で分類＆CSV出力</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
     table { border-collapse: collapse; width: 100%; margin-top: 10px; }
     th, td { border: 1px solid #ccc; padding: 6px; }
     th { background: #eee; cursor: pointer; }
-    button { margin: 5px 0; }
+    button { margin: 5px 5px 5px 0; }
   </style>
 </head>
 <body>
 
-<h2>📂 拡張子で分類されたファイル一覧</h2>
+<h2>📂 拡張子で分類されたファイル一覧（CSV出力対応）</h2>
 <button id="pick">フォルダを選択</button>
+<button id="downloadCsv" disabled>📤 CSV出力</button>
 <div id="view"></div>
 
 <script>
   const pickBtn = document.getElementById('pick');
+  const downloadBtn = document.getElementById('downloadCsv');
   const viewDiv = document.getElementById('view');
   let allFiles = [];
   let extGroups = {};
-  let currentSort = { target: 'ext', ascending: true }; // ← 初期ソート（拡張子昇順）
+  let currentSort = { target: 'ext', ascending: true };
 
   pickBtn.addEventListener('click', async () => {
     try {
@@ -32,10 +34,41 @@
       await readAllFiles(dirHandle);
       groupByExtension();
       renderExtensionTable();
+      downloadBtn.disabled = false;
     } catch (e) {
       alert('キャンセルされました。');
     }
   });
+
+  downloadBtn.addEventListener('click', () => {
+    const csv = generateCsv();
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csv], { type: "text/tab-separated-values;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "file-list.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+function generateCsv() {
+  const rows = [["拡張子", "件数", "ファイル名", "パス"]];
+  const sortedExts = Object.entries(extGroups).sort((a, b) => a[0].localeCompare(b[0]));
+
+  for (const [ext, files] of sortedExts) {
+    rows.push([ext, files.length, "", ""]);
+    files.forEach(f => {
+      rows.push(["", "", f.name, f.path.replaceAll("/", "\\")]);
+    });
+  }
+
+  return rows.map(row =>
+  row.map(cell => (cell ?? "").toString()).join(",")
+).join("\n");
+}
 
   async function readAllFiles(dirHandle, path = '') {
     for await (const [name, handle] of dirHandle.entries()) {
@@ -67,7 +100,6 @@
     const table = document.createElement('table');
     const exts = Object.entries(extGroups);
 
-    // 初期または指定ソートを適用
     if (currentSort.target === 'ext') {
       exts.sort((a, b) => currentSort.ascending ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]));
     } else if (currentSort.target === 'count') {
@@ -106,7 +138,7 @@
 
   window.renderFileTable = function(ext) {
     const files = [...extGroups[ext]];
-    let fileSort = { key: 'name', ascending: true }; // ← 初期ソート：ファイル名昇順
+    let fileSort = { key: 'name', ascending: true };
 
     const render = () => {
       viewDiv.innerHTML = `<h3>${ext} のファイル一覧</h3><button onclick="renderExtensionTable()">← 戻る</button>`;
@@ -145,7 +177,6 @@
       render();
     };
 
-    // 初回自動ソート（ファイル名昇順）
     files.sort((a, b) => a.name.localeCompare(b.name));
     render();
   };
