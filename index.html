@@ -7,7 +7,7 @@
     body { font-family: sans-serif; margin: 20px; }
     table { border-collapse: collapse; width: 100%; margin-top: 10px; }
     th, td { border: 1px solid #ccc; padding: 6px; }
-    th { background: #eee; }
+    th { background: #eee; cursor: pointer; }
     button { margin: 5px 0; }
   </style>
 </head>
@@ -22,6 +22,7 @@
   const viewDiv = document.getElementById('view');
   let allFiles = [];
   let extGroups = {};
+  let currentSort = { target: 'ext', ascending: true }; // ← 初期ソート（拡張子昇順）
 
   pickBtn.addEventListener('click', async () => {
     try {
@@ -64,10 +65,25 @@
   function renderExtensionTable() {
     viewDiv.innerHTML = '<h3>拡張子一覧</h3>';
     const table = document.createElement('table');
+    const exts = Object.entries(extGroups);
+
+    // 初期または指定ソートを適用
+    if (currentSort.target === 'ext') {
+      exts.sort((a, b) => currentSort.ascending ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]));
+    } else if (currentSort.target === 'count') {
+      exts.sort((a, b) => currentSort.ascending ? a[1].length - b[1].length : b[1].length - a[1].length);
+    }
+
     table.innerHTML = `
-      <thead><tr><th>拡張子</th><th>件数</th><th>操作</th></tr></thead>
+      <thead>
+        <tr>
+          <th onclick="sortExtTable('ext')">拡張子</th>
+          <th onclick="sortExtTable('count')">件数</th>
+          <th>操作</th>
+        </tr>
+      </thead>
       <tbody>
-        ${Object.entries(extGroups).map(([ext, files]) => `
+        ${exts.map(([ext, files]) => `
           <tr>
             <td>${ext}</td>
             <td>${files.length}</td>
@@ -79,23 +95,59 @@
     viewDiv.appendChild(table);
   }
 
+  window.sortExtTable = function(target) {
+    if (currentSort.target === target) {
+      currentSort.ascending = !currentSort.ascending;
+    } else {
+      currentSort = { target, ascending: true };
+    }
+    renderExtensionTable();
+  };
+
   window.renderFileTable = function(ext) {
-    const files = extGroups[ext];
-    viewDiv.innerHTML = `<h3>${ext} のファイル一覧</h3><button onclick="renderExtensionTable()">← 戻る</button>`;
-    const table = document.createElement('table');
-    table.innerHTML = `
-      <thead><tr><th>ファイル名</th><th>パス</th><th>操作</th></tr></thead>
-      <tbody>
-        ${files.map((file, idx) => `
+    const files = [...extGroups[ext]];
+    let fileSort = { key: 'name', ascending: true }; // ← 初期ソート：ファイル名昇順
+
+    const render = () => {
+      viewDiv.innerHTML = `<h3>${ext} のファイル一覧</h3><button onclick="renderExtensionTable()">← 戻る</button>`;
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead>
           <tr>
-            <td>${file.name}</td>
-            <td>${file.path}</td>
-            <td><button onclick="previewFile(${allFiles.indexOf(file)})">プレビュー</button></td>
+            <th onclick="sortFileTable('name')">ファイル名</th>
+            <th onclick="sortFileTable('path')">パス</th>
+            <th>操作</th>
           </tr>
-        `).join('')}
-      </tbody>
-    `;
-    viewDiv.appendChild(table);
+        </thead>
+        <tbody>
+          ${files.map((file) => `
+            <tr>
+              <td>${file.name}</td>
+              <td>${file.path}</td>
+              <td><button onclick="previewFile(${allFiles.indexOf(file)})">プレビュー</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      `;
+      viewDiv.appendChild(table);
+    };
+
+    window.sortFileTable = (key) => {
+      if (fileSort.key === key) {
+        fileSort.ascending = !fileSort.ascending;
+      } else {
+        fileSort = { key, ascending: true };
+      }
+      files.sort((a, b) => {
+        const result = a[key].localeCompare(b[key]);
+        return fileSort.ascending ? result : -result;
+      });
+      render();
+    };
+
+    // 初回自動ソート（ファイル名昇順）
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    render();
   };
 
   async function previewFile(index) {
