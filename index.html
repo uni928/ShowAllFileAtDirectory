@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>拡張子フィルター付きプレビュー</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    label { margin-right: 10px; }
+    input { margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; }
+    th { background: #eee; cursor: pointer; }
+    td button { margin-right: 5px; }
+  </style>
+</head>
+<body>
+
+<h2>📁 ファイル一覧とプレビュー（拡張子フィルター対応）</h2>
+
+<div>
+  <label>📌 指定拡張子 (例: txt,md):</label>
+  <input type="text" id="includeExts" placeholder="カンマ区切りで入力">
+  <label>🚫 除外拡張子 (例: log,tmp):</label>
+  <input type="text" id="excludeExts" placeholder="カンマ区切りで入力">
+</div>
+
+<button id="pick">フォルダを選択</button>
+
+<table id="fileTable" style="display:none;">
+  <thead>
+    <tr>
+      <th data-sort="name">ファイル名</th>
+      <th data-sort="path">パス</th>
+      <th>操作</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+  const pickBtn = document.getElementById('pick');
+  const includeInput = document.getElementById('includeExts');
+  const excludeInput = document.getElementById('excludeExts');
+  const table = document.getElementById('fileTable');
+  const tbody = table.querySelector('tbody');
+  let fileList = [];
+
+  pickBtn.addEventListener('click', async () => {
+    try {
+      const dirHandle = await window.showDirectoryPicker();
+      fileList = [];
+      await readAllFiles(dirHandle);
+      applyFilters();
+      sortByExtThenName(true);
+      renderTable();
+      table.style.display = 'table';
+    } catch (e) {
+      alert('キャンセルされました。');
+    }
+  });
+
+  async function readAllFiles(dirHandle, path = '') {
+    for await (const [name, handle] of dirHandle.entries()) {
+      const fullPath = `${path}${name}`;
+      if (handle.kind === 'file') {
+        fileList.push({ name, path: fullPath, handle });
+      } else if (handle.kind === 'directory') {
+        await readAllFiles(handle, `${fullPath}/`);
+      }
+    }
+  }
+
+  function applyFilters() {
+    const include = parseExtList(includeInput.value);
+    const exclude = parseExtList(excludeInput.value);
+    fileList = fileList.filter(f => {
+      const ext = getExt(f.name);
+      if (include.length > 0) {
+        return include.includes(ext);
+      } else if (exclude.length > 0) {
+        return !exclude.includes(ext);
+      }
+      return true;
+    });
+  }
+
+  function parseExtList(input) {
+    return input.split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(e => e.length > 0);
+  }
+
+  function getExt(filename) {
+    const dot = filename.lastIndexOf('.');
+    return dot === -1 ? '' : filename.slice(dot + 1).toLowerCase();
+  }
+
+  function renderTable() {
+    tbody.innerHTML = '';
+    fileList.forEach((file, index) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${file.name}</td>
+        <td>${file.path}</td>
+        <td><button onclick="previewFile(${index})">プレビュー</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function previewFile(index) {
+    const file = await fileList[index].handle.getFile();
+    const content = await file.text();
+    const html = `
+      <html><head><meta charset="UTF-8"><title>${file.name}</title></head>
+      <body><pre style="white-space:pre-wrap;">${escapeHtml(content)}</pre></body>
+      </html>
+    `;
+    const newTab = window.open("", "_blank");
+    if (newTab) {
+      newTab.document.open();
+      newTab.document.write(html);
+      newTab.document.close();
+    } else {
+      alert("新しいタブを開けませんでした。ポップアップブロックを解除してください。");
+    }
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>'"]/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]
+    );
+  }
+
+  function sortByExtThenName(ascending) {
+    fileList.sort((a, b) => {
+      const [aExt, aBase] = splitExt(a.name);
+      const [bExt, bBase] = splitExt(b.name);
+      const extCompare = aExt.localeCompare(bExt);
+      const result = extCompare !== 0 ? extCompare : aBase.localeCompare(bBase);
+      return ascending ? result : -result;
+    });
+  }
+
+  function splitExt(filename) {
+    const lastDot = filename.lastIndexOf('.');
+    if (lastDot === -1) return ['', filename.toLowerCase()];
+    return [filename.slice(lastDot + 1).toLowerCase(), filename.slice(0, lastDot).toLowerCase()];
+  }
+
+  // ヘッダーソート対応
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      const ascending = th.classList.toggle('asc');
+      if (key === 'name') {
+        sortByExtThenName(ascending);
+      } else {
+        fileList.sort((a, b) =>
+          ascending ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key])
+        );
+      }
+      renderTable();
+    });
+  });
+</script>
+
+</body>
+</html>
